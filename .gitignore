@@ -1,0 +1,10 @@
+.env
+config.json
+
+/data/*.csv
+/data/*.json
+/images/*.jpg
+
+venv/
+__pycache__/
+.DS_Store
