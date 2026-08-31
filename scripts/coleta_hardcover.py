@@ -17,8 +17,6 @@ def executar_query(query):
         "User-Agent": "POC-BookTok-Scraper/1.0"
     }
     
-    ## print(f"DEBUG: Enviando Authorization header: Bearer {token[:5]}...") # Mostra apenas o início do token
-    
     response = requests.post(url, headers=headers, json={'query': query})
     
     print(f"Status Code: {response.status_code}")
@@ -35,13 +33,39 @@ def processar_dados(raw_data):
         cached = book.get('cached_tags', {})
         cw_list = [cw['tag'] for cw in cached.get('Content Warning', [])]
         
+        isbn_final = None
+        origem_isbn = None
+        
+        # Tenta pegar da edição física padrão
+        ed_fisica = book.get('default_physical_edition') or {}
+        isbn_final = ed_fisica.get('isbn_13') or ed_fisica.get('isbn_10')
+        if isbn_final:
+            origem_isbn = "Edição Física Padrão"
+        
+        # Se não achar, tenta da edição ebook padrão
+        if not isbn_final:
+            ed_ebook = book.get('default_ebook_edition') or {}
+            isbn_final = ed_ebook.get('isbn_13') or ed_ebook.get('isbn_10')
+            if isbn_final:
+                origem_isbn = "Edição Ebook Padrão"
+            
+        # Se ainda não achar, varre todas as edições como último recurso
+        if not isbn_final:
+            edicoes = book.get('editions') or []
+            for ed in edicoes:
+                encontrado = ed.get('isbn_13') or ed.get('isbn_10')
+                if encontrado:
+                    isbn_final = encontrado
+                    break
+        
         dataset.append({
+            'ISBN': isbn_final,
+            # 'Origem_ISBN': origem_isbn,
             'Titulo': book.get('title'),
             'Autor': author,
             'Ano_Publicacao': book.get('release_year'),
             'Capa_URL': book['image']['url'] if book.get('image') else None,
             'Content_Warnings': ", ".join(cw_list),
-            'Is_Explicit': any(tag in ["Sexual content", "sexual harassment"] for tag in cw_list)
         })
     return pd.DataFrame(dataset)
 
@@ -54,9 +78,32 @@ query ColetaPOC1 {
     image { url }
     contributions { author { name } }
     cached_tags
+    default_physical_edition {
+      isbn_13
+      isbn_10
+    }
+    default_ebook_edition {
+      isbn_13
+      isbn_10
+    }
+    editions {
+      isbn_13
+      isbn_10
+    }
   }
 }
 """
+
+# #books(
+#   where: { 
+#     book_genres: { 
+#       genre: { 
+#         slug: { _eq: "young-adult" } 
+#       } 
+#     } 
+#   }, 
+#   limit: 50
+# ) 
 
 if __name__ == "__main__":
     try:
@@ -68,9 +115,12 @@ if __name__ == "__main__":
         df = processar_dados(dados_brutos)
         
         if not os.path.exists('data'): os.makedirs('data')
-        df.to_csv("data/dataset_booktok_poc1.csv", index=False)
+        df.to_csv("data/dataset_hardcover_poc1.csv", index=False)
         
         print("Coleta realizada com sucesso!")
-        print(df.head())
+    
+        #print(df.head())
+        
+        print(df[['Titulo', 'Content_Warnings' ]].head(10))
     except Exception as e:
         print(f"Falha na execução: {e}")
